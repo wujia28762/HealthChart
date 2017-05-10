@@ -5,7 +5,7 @@ HealthChart
 ## 比例图
 >![](https://github.com/wujia28762/HealthChart/blob/master/line.png "计算图中元素比例")
 ## 效果图
->![](https://github.com/wujia28762/HealthChart/blob/master/final.png "最终效果")
+>![](https://github.com/wujia28762/HealthChart/blob/master/finalImage.png "最终效果")
 ## 对外提供方法列表
 >setAnimation(boolean);//设置是否动画显示<br>
 >setChartType(HealthChart.ChartType);//设置图表类型，柱状图OR折线图<br>
