@@ -40,4 +40,4 @@ hc.setData(builder.sampleData());
 ```
 
 # 参考博客
- >http://blog.csdn.net/column/details/androidcustomview.html
+http://blog.csdn.net/column/details/androidcustomview.html
