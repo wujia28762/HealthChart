@@ -1,10 +1,13 @@
 package com.example.star.customTest;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PointF;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
@@ -17,6 +20,7 @@ import com.example.star.utils.ScreenUtil;
 import java.util.Arrays;
 
 import static android.content.ContentValues.TAG;
+import static android.graphics.Color.WHITE;
 
 /**
  * Created by Star on 2017/5/5.
@@ -32,14 +36,14 @@ public class HealthChart extends View {
         if(null == mData||null == mData.days||null == mData.steps)
             throw new IllegalArgumentException("data not found!");
         //数据和X下标长度不同
-        if(mData.days.length!=mData.steps.length)
+        if(mData.days.length!=mData.steps.length&&mData.steps.length<=0)
             throw new IllegalArgumentException("data not match!");
         this.mData = mData;
     }
 
 
     //获取图表类型
-    public int getChartType() {
+    private int getChartType() {
         return mChartType;
     }
 
@@ -64,6 +68,8 @@ public class HealthChart extends View {
     private Paint mLinePaint;
     private Paint mSeBigTextPaint;
     private Paint mDataLinePaint;
+    private Paint mChartLineDataPaint;
+    private Paint mChartLineCirDataPaint;
 
 
     //是否开启柱状图加载动画效果
@@ -72,7 +78,7 @@ public class HealthChart extends View {
     }
 
     //获取是否使用动画状态
-    public boolean isAnimation() {
+    private boolean isAnimation() {
         return animation;
     }
 
@@ -116,6 +122,17 @@ public class HealthChart extends View {
     private static float paintAreaStartX = 3 / 50F, paintAreaStartY = 22 / 25F, paintAreaEndX = 4 / 5F, paintAreaEndY = 22 / 25F;
     //X每段间隔偏移量
     private static float offSetX;
+    //图形所有坐标
+    private static PointF[] chartIndex;
+
+    //画折线图的路径对象
+    private Path mPath;// 路径对象
+
+    private int lineRadio = 5;
+
+
+
+    private Bitmap  mRefBitmap;// 位图
 
 
 
@@ -127,7 +144,7 @@ public class HealthChart extends View {
     //背景下方的深红色
     private static final int bottomBackGroundColor = 0xffff3b38;
     //大文字颜色
-    private static final int bigTextColor = Color.WHITE;
+    private static final int bigTextColor = WHITE;
     private static final int smallTextColor = 0xffffc0a9;
     private static final int lineColor = 0xffffb88e;
     private static final int dataLineColor=0xfffc7259;
@@ -200,12 +217,15 @@ public class HealthChart extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
+
         //画圆角背景，大小是构造函数中计算出的。
+
 
         mBackgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
         mBackgroundPaint.setStyle(Paint.Style.FILL);
         mBackgroundPaint.setShader(new LinearGradient(rf.left, rf.top, rf.top, rf.bottom, topBackGroundColor, bottomBackGroundColor, Shader.TileMode.REPEAT));
         canvas.drawRoundRect(rf, 10, 10, mBackgroundPaint);
+
 
         //画图表上方的文字
         drawText(canvas);
@@ -214,21 +234,108 @@ public class HealthChart extends View {
         //画X轴的下标
         drawXData(canvas);
 
-        //判断类型，以不同形式显示数据
-        if(getChartType()==ChartType.HISTOGRAM) {
-            drawHisData(canvas);
+        calChartData();
+
+        if(!isAnimation()) {
+            //第二次绘制数据了，下面不需要再重绘
+            stopAnimation = true;
+            //mDataLinePaint.getTextBounds(str, 0, str.length(), rect);
+            if(getChartType()==ChartType.HISTOGRAM) {
+                drawHisData(canvas);
+            }
+            else
+            {
+                drawLineChart(canvas);
+            }
         }
-        else
-        {
-            drawLineChart(canvas);
+        else {
+            //
+            animation = false;
+            //如果stopAnimation == true 就不需要重绘了。
+            if(!stopAnimation)
+                invalidate();
+
         }
+            //判断类型，以不同形式显示数据
+
 
 
 
 
     }
 
+    private void calChartData() {
+
+
+
+        //这里先计算一下所有起点和终点的坐标（柱状图画直线，需要起始点和终点，折线图只需要终点）所以申请2倍数据的空间
+        //复数index存储起点，单数index存储终点
+        chartIndex = new PointF[mData.days.length*2];
+
+        //这里以柱状图的画笔为标尺
+        mDataLinePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
+        //描边
+        mDataLinePaint.setStyle(Paint.Style.STROKE);
+        //画笔宽度
+        mDataLinePaint.setStrokeWidth(20);
+        mDataLinePaint.setColor(dataLineColor);
+
+        float dataLineX,baseDataLineY,baseDataLineEndY;
+        Rect rect = new Rect();
+        //这里不能修改offSetX中的引用值。可以赋值给临时引用变量。修改后，会造成所有引用offSetX的x坐标偏移。
+        PointF p,p1;
+        for (int x = 0, index = 0,index1 = 0; index < mData.days.length*2&&index1<mData.days.length;index+=2,x += offSetX,index1++) {
+            mDataLinePaint.getTextBounds(mData.days[index1], 0, mData.days[index1].length(), rect);
+            dataLineX = rf.right * paintAreaStartX + x + Math.abs(rect.width());
+            baseDataLineY = (bottomLineStartY - bottomDataLineY) * rf.bottom;
+            baseDataLineEndY = baseDataLineY - ((bottomLineStartY - bottomDataLineY - maxStepStartY) * rf.bottom - Math.abs(mSmallTextPaint.getFontMetrics().top)) * (Float.parseFloat(mData.steps[index1]) / Integer.parseInt(mData.maxStep));
+            p = new PointF(dataLineX,baseDataLineY);
+            p1 = new PointF(dataLineX,baseDataLineEndY);
+            chartIndex[index] = p;
+            chartIndex[index+1] = p1;
+        }
+    }
+
     private void drawLineChart(Canvas canvas) {
+        //折线图的线段画笔
+        mChartLineDataPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
+        //描边
+        mChartLineDataPaint.setStyle(Paint.Style.STROKE);
+        //画笔宽度
+        mChartLineDataPaint.setStrokeWidth(lineRadio);
+        mChartLineDataPaint.setColor(dataLineColor);
+
+        //折线图圆点画笔
+        mChartLineCirDataPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
+        mChartLineCirDataPaint.setStyle(Paint.Style.FILL);
+        mChartLineCirDataPaint.setStrokeWidth(lineRadio);
+        mChartLineCirDataPaint.setColor(dataLineColor);
+
+        mPath = new Path();
+        for (int i = 1;i<mData.days.length*2;i+=2) {
+            try {
+                Thread.sleep(50);
+                if (i == 1) {
+                    mPath.moveTo(chartIndex[i].x, chartIndex[i].y);
+                } else {
+                    mPath.lineTo(chartIndex[i].x, chartIndex[i].y);
+                }
+                canvas.drawCircle(chartIndex[i].x, chartIndex[i].y, lineRadio*1.5F, mChartLineCirDataPaint);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            canvas.drawPath(mPath, mChartLineDataPaint);
+        }
+        Paint Aha = new Paint();
+        Aha.setStyle(Paint.Style.FILL);
+        Aha.setColor(Color.WHITE);
+        Aha.setAlpha(6);
+        mPath.lineTo(chartIndex[mData.days.length*2-2].x,chartIndex[mData.days.length*2-2].y);
+        mPath.lineTo(chartIndex[0].x,chartIndex[0].y);
+        mPath.close();
+        canvas.drawPath(mPath,Aha);
+
+
 
 
     }
@@ -244,51 +351,24 @@ public class HealthChart extends View {
     //计算每段数据的间隔
     private float getOffSetX()
     {
+        //length个数据，分length-1段  ~T_T~
         return (paintAreaEndX - paintAreaStartX) / (mData.days.length-1) * rf.right;
     }
 
     private void drawHisData(Canvas canvas) {
-        //这里不能修改offSetX中的引用值。可以赋值给临时引用变量。修改后，会造成所有引用offSetX的x坐标偏移。
-        //length个数据，分length-1段  ~T_T~
-        //设置画笔抗锯齿和过渡均匀
-        mDataLinePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.DITHER_FLAG);
-        //描边
-        mDataLinePaint.setStyle(Paint.Style.STROKE);
-        //画笔宽度
-        mDataLinePaint.setStrokeWidth(20);
-        mDataLinePaint.setColor(dataLineColor);
-
-        //mDataLinePaint.measureText(mData.days[index]) / 2
-        float dataLineX,baseDataLineY ;
-        Rect rect = new Rect();
 
 
         //如果有动画，加载一次空数据。通过两次绘制，实现动画
-        if(!isAnimation()) {
-            //第二次绘制数据了，下面不需要再重绘
-            stopAnimation = true;
-            //mDataLinePaint.getTextBounds(str, 0, str.length(), rect);
-            for (int x = 0, index = 0; index < mData.days.length; index++, x += offSetX) {
-                mDataLinePaint.getTextBounds(mData.days[index], 0, mData.days[index].length(), rect);
-                dataLineX = rf.right * paintAreaStartX + x + rect.width();
-                baseDataLineY = (bottomLineStartY - bottomDataLineY) * rf.bottom;
+
+            for (int index = 0; index < mData.days.length*2;index+=2) {
                 try {
                     Thread.sleep(50);
-                    canvas.drawLine(dataLineX, baseDataLineY, dataLineX, baseDataLineY - ((bottomLineStartY - bottomDataLineY - maxStepStartY) * rf.bottom - Math.abs(mSmallTextPaint.getFontMetrics().top)) * (Float.parseFloat(mData.steps[index]) / Integer.parseInt(mData.maxStep)), mDataLinePaint);
+                    canvas.drawLine(chartIndex[index].x, chartIndex[index].y, chartIndex[index+1].x, chartIndex[index+1].y, mDataLinePaint);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
             }
-        }
 
-        else {
-            //
-            animation = false;
-            //如果stopAnimation == true 就不需要重绘了。
-            if(!stopAnimation)
-                invalidate();
-
-        }
 
 
 
@@ -357,7 +437,7 @@ public class HealthChart extends View {
                     .days(new String[]{"5.1", "2", "3", "4", "5", "6", "7"})
                     .avgStep("日平均值：")
                     .curStep("1999步")
-                    .steps(new String[]{"1000", "2000", "5000", "7000", "9000", "9500", "9999"})
+                    .steps(new String[]{"9999", "2000", "5000", "7000", "3000", "9500", "9999"})
                     .inIt();
         }
 
